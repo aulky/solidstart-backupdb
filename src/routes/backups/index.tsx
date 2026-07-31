@@ -181,7 +181,8 @@ export default function BackupsPage() {
               </div>
             }>
               {(folder) => {
-                const isExpanded = () => expandedFolders()[folder.folder_name] ?? true;
+                // Default value is FALSE (Minimised/Closed by default)
+                const isExpanded = () => expandedFolders()[folder.folder_name] ?? false;
 
                 return (
                   <div class="bg-white rounded-2xl shadow-card overflow-hidden transition-all duration-150 border border-gray-100">
@@ -230,9 +231,9 @@ export default function BackupsPage() {
                       </div>
                     </div>
 
-                    {/* Files inside Folder */}
+                    {/* Files inside Folder (Shown only when expanded) */}
                     <Show when={isExpanded()}>
-                      <div class="divide-y divide-gray-50">
+                      <div class="divide-y divide-gray-50 bg-white">
                         <For each={folder.items}>
                           {(log) => (
                             <div class={`flex items-center justify-between p-3.5 px-6 hover:bg-gray-50/50 transition-colors text-sm ${log.status === "failed" ? "bg-red-50/30" : ""}`}>

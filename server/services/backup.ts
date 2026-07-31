@@ -31,14 +31,23 @@ export function formatTimestamp(date: Date = new Date()): string {
 // --- Escape SQL value ---
 function escapeValue(val: unknown): string {
   if (val === null || val === undefined) return "NULL";
-  if (typeof val === "number") return String(val);
+  if (typeof val === "number") return isNaN(val) ? "NULL" : String(val);
   if (typeof val === "bigint") return String(val);
   if (typeof val === "boolean") return val ? "1" : "0";
   if (Buffer.isBuffer(val)) {
     return `X'${val.toString("hex")}'`;
   }
   if (val instanceof Date) {
+    if (isNaN(val.getTime())) return "NULL";
     return `'${val.toISOString().slice(0, 19).replace("T", " ")}'`;
+  }
+  if (typeof val === "object") {
+    try {
+      const jsonStr = JSON.stringify(val);
+      return `'${jsonStr.replace(/\\/g, "\\\\").replace(/'/g, "\\'").replace(/\n/g, "\\n").replace(/\r/g, "\\r")}'`;
+    } catch {
+      return "NULL";
+    }
   }
   const str = String(val);
   return `'${str.replace(/\\/g, "\\\\").replace(/'/g, "\\'").replace(/\n/g, "\\n").replace(/\r/g, "\\r").replace(/\x00/g, "\\0").replace(/\x1a/g, "\\Z")}'`;
@@ -55,75 +64,87 @@ async function dumpDatabaseJS(
 ): Promise<number> {
   const conn = await rootPool.getConnection();
   try {
-    await conn.query(`USE \`${dbName.replace(/`/g, "")}\``);
+    const safeDb = dbName.replace(/`/g, "");
+    await conn.query(`USE \`${safeDb}\``);
 
     // Enumerate base tables only (skip views) — FEATURES.md §3
     const [tables] = await conn.query<RowDataPacket[]>(
       "SHOW FULL TABLES WHERE Table_type = 'BASE TABLE'"
     );
-    const tableKey = `Tables_in_${dbName}`;
 
-    let sql = `-- BackupDB dump of \`${dbName}\`\n`;
+    let sql = `-- BackupDB dump of \`${safeDb}\`\n`;
     sql += `-- Generated at ${new Date().toISOString()}\n`;
     sql += `SET NAMES utf8mb4;\nSET FOREIGN_KEY_CHECKS = 0;\n\n`;
 
     for (const tableRow of tables) {
-      const tableName = String(tableRow[tableKey] || Object.values(tableRow)[0]);
+      // Ambil nama tabel dengan aman (kolom pertama selalu nama tabel pada SHOW FULL TABLES)
+      const keys = Object.keys(tableRow);
+      const tableNameKey = keys.find((k) => k.toLowerCase().startsWith("tables_in_")) || keys[0];
+      const tableName = String(tableRow[tableNameKey]);
+
+      if (!tableName || tableName === "BASE TABLE") continue;
       const safeTable = tableName.replace(/`/g, "");
 
-      // DROP + CREATE
-      sql += `DROP TABLE IF EXISTS \`${safeTable}\`;\n`;
-      const [createResult] = await conn.query<RowDataPacket[]>(
-        `SHOW CREATE TABLE \`${safeTable}\``
-      );
-      if (createResult[0]) {
-        const createStmt =
-          createResult[0]["Create Table"] || Object.values(createResult[0])[1];
-        sql += `${createStmt};\n\n`;
-      }
+      try {
+        // DROP + CREATE
+        sql += `DROP TABLE IF EXISTS \`${safeTable}\`;\n`;
+        const [createResult] = await conn.query<RowDataPacket[]>(
+          `SHOW CREATE TABLE \`${safeTable}\``
+        );
 
-      // INSERT batching
-      const [rows] = await conn.query<TableRow[]>(
-        `SELECT * FROM \`${safeTable}\``
-      );
-      if (rows.length === 0) {
-        sql += `-- Table \`${safeTable}\` is empty\n\n`;
-        continue;
-      }
+        if (createResult && createResult[0]) {
+          const createStmt =
+            createResult[0]["Create Table"] || Object.values(createResult[0])[1];
+          sql += `${createStmt};\n\n`;
+        }
 
-      const columns = Object.keys(rows[0]).filter((k) => k !== "constructor");
-      let buffer = "";
-      let rowCount = 0;
+        // INSERT batching
+        const [rows] = await conn.query<TableRow[]>(
+          `SELECT * FROM \`${safeTable}\``
+        );
 
-      for (let i = 0; i < rows.length; i++) {
-        if (i % BATCH_SIZE === 0) {
-          if (i > 0) {
-            buffer += ";\n";
+        if (rows.length === 0) {
+          sql += `-- Table \`${safeTable}\` is empty\n\n`;
+          continue;
+        }
+
+        const columns = Object.keys(rows[0]).filter((k) => k !== "constructor");
+        let buffer = "";
+        let rowCount = 0;
+
+        for (let i = 0; i < rows.length; i++) {
+          if (i % BATCH_SIZE === 0) {
+            if (i > 0) {
+              buffer += ";\n";
+            }
+            buffer += `INSERT INTO \`${safeTable}\` (\`${columns.join("`, `")}\`) VALUES\n`;
+          } else {
+            buffer += ",\n";
           }
-          buffer += `INSERT INTO \`${safeTable}\` (\`${columns.join("`, `")}\`) VALUES\n`;
-        } else {
-          buffer += ",\n";
+
+          const values = columns.map((col) => escapeValue(rows[i][col]));
+          buffer += `(${values.join(", ")})`;
+          rowCount++;
+
+          // Flush per FLUSH_ROW_COUNT rows or FLUSH_BYTE_LIMIT bytes
+          if (
+            rowCount >= FLUSH_ROW_COUNT ||
+            buffer.length >= FLUSH_BYTE_LIMIT
+          ) {
+            sql += buffer;
+            buffer = "";
+            rowCount = 0;
+          }
         }
 
-        const values = columns.map((col) => escapeValue(rows[i][col]));
-        buffer += `(${values.join(", ")})`;
-        rowCount++;
-
-        // Flush per FLUSH_ROW_COUNT rows or FLUSH_BYTE_LIMIT bytes
-        if (
-          rowCount >= FLUSH_ROW_COUNT ||
-          buffer.length >= FLUSH_BYTE_LIMIT
-        ) {
+        if (buffer.length > 0) {
           sql += buffer;
-          buffer = "";
-          rowCount = 0;
         }
+        sql += ";\n\n";
+      } catch (tableErr) {
+        const errDetail = tableErr instanceof Error ? tableErr.message : String(tableErr);
+        throw new Error(`Failed dumping table "${safeTable}" in database "${safeDb}": ${errDetail}`);
       }
-
-      if (buffer.length > 0) {
-        sql += buffer;
-      }
-      sql += ";\n\n";
     }
 
     sql += "SET FOREIGN_KEY_CHECKS = 1;\n";
@@ -267,11 +288,10 @@ export async function applyRetention(
 ): Promise<void> {
   const entries = await readdir(backupDir, { withFileTypes: true });
 
-  // Only consider directories matching timestamp pattern
   const folders = entries
     .filter((e) => e.isDirectory() && FOLDER_REGEX.test(e.name))
     .map((e) => e.name)
-    .sort(); // Lexicographic sort = chronological for YYYY-MM-DD_HHmmss
+    .sort();
 
   if (folders.length <= limit) return;
 
