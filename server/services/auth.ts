@@ -1,18 +1,12 @@
 import { SignJWT, jwtVerify, type JWTPayload } from "jose";
+import { getEnv } from "../env.js";
 
 /**
- * Mengambil JWT_SECRET dari environment.
- * Fail-fast jika tidak diset (sesuai TECH_STACK.md §3 item 3).
+ * Mengambil JWT_SECRET dari environment (sudah divalidasi oleh Zod di env.ts).
  */
 function getJwtSecret(): Uint8Array {
-  const secret =
-    typeof process !== "undefined" ? process.env.JWT_SECRET : undefined;
-  if (!secret) {
-    throw new Error(
-      "JWT_SECRET environment variable is required. Server cannot start without it."
-    );
-  }
-  return new TextEncoder().encode(secret);
+  const env = getEnv();
+  return new TextEncoder().encode(env.JWT_SECRET);
 }
 
 export interface SessionPayload extends JWTPayload {

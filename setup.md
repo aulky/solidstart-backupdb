@@ -8,99 +8,105 @@ Panduan instalasi dan setup otomatis aplikasi **BackupDB** di lingkungan produks
 
 1. **Node.js** (Versi 24 atau lebih tinggi) — [Unduh Node.js](https://nodejs.org/en/download)
 2. **Database MySQL** (Sebagai target backup & penyimpanan pengaturan) — [Unduh MySQL](https://dev.mysql.com/downloads/installer/)
-3. **mysqldump** (Utilitas bawaan MySQL untuk mengekspor database — biasanya terinstal bersama MySQL server/client).
-4. **PM2** (Process Manager untuk Node.js) - *Sangat direkomendasikan* — [Panduan PM2](https://pm2.keymetrics.io/)
+3. **pnpm** (Package manager direkomendasikan) — `npm install -g pnpm`
+4. **PM2** atau **Systemd** (Process Manager untuk auto-restart di server produksi)
 
 ---
 
 ## Langkah 1: Persiapan Aplikasi & File `.env`
 
-1. **Clone/Salin Project** ke direktori server tujuan (contoh: `C:\apps\backupdb` atau `/opt/backupdb`).
+1. **Clone / Salin Project** ke direktori server tujuan (contoh: `C:\apps\backupdb` atau `/opt/backupdb`).
+
 2. **Install Dependensi**:
    ```bash
-   # Menggunakan pnpm
    pnpm install
-   
-   # Atau menggunakan npm
-   npm install --omit=dev
    ```
-3. **Build Aplikasi** untuk mode produksi:
+
+3. **Generate `JWT_SECRET`**:
+   `JWT_SECRET` wajib diisi minimal 32 karakter untuk keamanan sesi admin. Buat kunci acak dengan menjalankan perintah ini di terminal:
    ```bash
-   pnpm build
-   # atau
-   npm run build
+   node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
    ```
+   *Salin string acak yang dihasilkan untuk diisikan ke file `.env`.*
+
 4. **Buat File `.env`**:
-   Salin `.env.example` menjadi `.env` lalu sesuaikan isinya ke database produksi:
+   Salin `.env.example` menjadi `.env` lalu isi nilainya:
+   ```bash
+   cp .env.example .env
+   ```
+
+   Sesuaikan isi file `.env`:
    ```env
    DB_HOST=127.0.0.1
    DB_PORT=3306
    DB_USER=root
-   DB_PASSWORD=password_produksi_anda
-   MYSQLDUMP_PATH=C:/xampp/mysql/bin/mysqldump.exe  # Sesuaikan path di Windows
-   BACKUP_DIR=C:/backups                           # Direktori tujuan backup
+   DB_PASSWORD=password_mysql_produksi_anda
+   JWT_SECRET=hasil_generate_string_acak_minimal_32_karakter
+   BACKUP_DIR=./backups
    ```
-   *Catatan untuk Linux:* Ubah `MYSQLDUMP_PATH` ke `/usr/bin/mysqldump` (atau hasil dari command `which mysqldump`).
+
+5. **Build Aplikasi Production**:
+   ```bash
+   pnpm build
+   ```
+   *Perintah ini akan memverifikasi TypeScript dan menghasilkan output build produksi di folder `.output/`.*
 
 ---
 
 ## Langkah 2: Setup di Windows Server (Auto-Restart)
 
-Ada dua metode utama agar aplikasi langsung menyala saat server restart di Windows Server.
-
-### Metode A: Menggunakan PM2 dan pm2-windows-service (Direkomendasikan)
-
-PM2 dapat dijadikan service Windows agar otomatis berjalan di background saat boot tanpa harus ada user login.
+### Metode A: Menggunakan PM2 (Sangat Direkomendasikan)
 
 1. **Install PM2 secara global**:
    ```cmd
    npm install -g pm2
    ```
+
 2. **Install PM2 Windows Startup Utility** (Jalankan terminal sebagai **Administrator**):
    ```cmd
    npm install -g pm2-windows-startup
    pm2-startup install
    ```
-3. **Jalankan aplikasi** menggunakan PM2 dari direktori aplikasi:
+
+3. **Jalankan aplikasi** dari root folder proyek:
    ```cmd
    pm2 start .output/server/index.mjs --name "backupdb"
    ```
-4. **Simpan konfigurasi** agar PM2 memuat ulang aplikasi setelah restart:
+
+4. **Simpan konfigurasi** agar PM2 otomatis memuat ulang aplikasi setelah restart server:
    ```cmd
    pm2 save
    ```
+   
+---
 
 ### Metode B: Menggunakan Task Scheduler (Alternatif Tanpa PM2)
 
 1. Buka **Task Scheduler** di Windows Server.
-2. Klik **Create Basic Task**.
-3. Beri nama (contoh: `BackupDB-Startup`).
-4. Pada bagian **Trigger**, pilih **When the computer starts**.
-5. Pada bagian **Action**, pilih **Start a program**.
-6. Isi kolom program/script dengan path Node.js dan argumen aplikasi:
-   * **Program/script**: `node` (atau path absolut seperti `C:\Program Files\nodejs\node.exe`)
+2. Klik **Create Basic Task** → Beri nama (contoh: `BackupDB-Startup`).
+3. Trigger: Pilih **When the computer starts**.
+4. Action: Pilih **Start a program**.
+5. Konfigurasi Action:
+   * **Program/script**: `node` (atau path absolut `C:\Program Files\nodejs\node.exe`)
    * **Add arguments**: `C:\path-ke-aplikasi\.output\server\index.mjs`
    * **Start in**: `C:\path-ke-aplikasi` (direktori utama aplikasi Anda)
-7. Pada tab **General** di properti task:
-   * Pilih opsi **Run whether user is logged on or not**.
+6. Di tab **General**:
+   * Pilih **Run whether user is logged on or not**.
    * Centang **Run with highest privileges**.
-8. Simpan dan masukkan kredensial Administrator Windows.
+7. Simpan dan masukkan kredensial Administrator Windows.
 
 ---
 
 ## Langkah 3: Setup di Linux Server (Auto-Restart)
 
-Dua metode standar industri untuk Linux (Ubuntu/Debian/CentOS/RHEL).
+### Metode A: Menggunakan Systemd Service (Rekomendasi Produksi)
 
-### Metode A: Menggunakan Systemd Service (Sangat Stabil & Direkomendasikan)
-
-Systemd adalah pengelola sistem bawaan pada mayoritas distribusi Linux modern.
-
-1. Buat file service baru di `/etc/systemd/system/backupdb.service`:
+1. Buat file service `/etc/systemd/system/backupdb.service`:
    ```bash
    sudo nano /etc/systemd/system/backupdb.service
    ```
-2. Isi file dengan konfigurasi berikut (sesuaikan path `/opt/backupdb` dan user `ubuntu`):
+
+2. Isi dengan konfigurasi berikut (sesuaikan `User` dan `WorkingDirectory`):
    ```ini
    [Unit]
    Description=BackupDB Automation Application
@@ -118,49 +124,48 @@ Systemd adalah pengelola sistem bawaan pada mayoritas distribusi Linux modern.
    [Install]
    WantedBy=multi-user.target
    ```
-3. Reload systemd daemon:
+
+3. Aktifkan dan jalankan service:
    ```bash
    sudo systemctl daemon-reload
-   ```
-4. Aktifkan service agar berjalan otomatis saat boot:
-   ```bash
    sudo systemctl enable backupdb
-   ```
-5. Jalankan service saat ini juga:
-   ```bash
    sudo systemctl start backupdb
    ```
-6. Cek status service:
+
+4. Cek status service:
    ```bash
    sudo systemctl status backupdb
    ```
 
-### Metode B: Menggunakan PM2 (Cepat & Praktis)
+---
+
+### Metode B: Menggunakan PM2
 
 1. **Install PM2 secara global**:
    ```bash
    sudo npm install -g pm2
    ```
+
 2. **Jalankan aplikasi**:
    ```bash
    pm2 start .output/server/index.mjs --name "backupdb"
    ```
-3. **Generate startup script**:
+
+3. **Set Startup & Simpan**:
    ```bash
    pm2 startup
-   ```
-   *Command di atas akan menghasilkan sebuah perintah konfigurasi sistem (biasanya menggunakan `sudo env PATH=...`). Copy dan jalankan perintah tersebut.*
-4. **Simpan konfigurasi** proses PM2 saat ini:
-   ```bash
+   # (Jalankan perintah sudo env PATH=... yang ditampilkan oleh PM2)
    pm2 save
    ```
 
 ---
 
-## Verifikasi Pengujian
+## Langkah 4: Verifikasi & Login Pertama
 
-Untuk memastikan auto-restart bekerja sempurna:
-1. Pastikan database MySQL lokal/produksi sudah menyala.
-2. Lakukan restart pada server (Windows/Linux).
-3. Setelah server kembali online (tanpa melakukan login manual ke GUI/SSH jika menggunakan PM2 service / Systemd), coba akses endpoint aplikasi di browser (default port SolidStart biasanya `3000`, atau port yang Anda konfigurasikan).
-4. Periksa log backup otomatis di dashboard untuk memastikan scheduler database berjalan dengan benar.
+1. Pastikan server MySQL berjalan.
+2. Akses aplikasi melalui browser di port aplikasi (default SolidStart: `http://localhost:3000` atau port yang Anda tentukan).
+3. Database `backup_automation` dan tabel pendukung akan **otomatis dibuat** saat aplikasi pertama kali menyala.
+4. **Login Pertama kali**:
+   * **Username:** `admin`
+   * **Password:** `admin123`
+5. Masuk ke menu **Settings** → **Admin Security** untuk segera mengganti password default dengan password baru demi keamanan.
