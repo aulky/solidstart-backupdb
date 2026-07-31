@@ -115,7 +115,7 @@ DB_HOST=localhost
 DB_PORT=3306
 DB_USER=root
 DB_PASSWORD=
-JWT_SECRET=C18ds/sxSwdh7loCIGrNGB9pWwuXjVTOXy9Jwp8q4qE=
+JWT_SECRET=super-secret-jwt-key-min-32-chars-long
 BACKUP_DIR=./backups
 ```
 
