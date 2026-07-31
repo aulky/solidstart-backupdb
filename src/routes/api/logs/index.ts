@@ -76,15 +76,15 @@ export async function GET(event: APIEvent): Promise<Response> {
       [...params, limit, offset]
     );
 
-    // Query chart data (30 days aggregation)
+    // Query chart data (30 days aggregation) dengan DATE_FORMAT presisi YYYY-MM-DD
     const [chartRows] = await pool.query<RowDataPacket[]>(`
       SELECT
-        DATE(executed_at) as date,
+        DATE_FORMAT(executed_at, '%Y-%m-%d') as date,
         SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) as success_count,
         SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as fail_count
       FROM backup_logs
       WHERE type != 'retention' AND executed_at >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
-      GROUP BY DATE(executed_at)
+      GROUP BY DATE_FORMAT(executed_at, '%Y-%m-%d')
       ORDER BY date ASC
     `);
 

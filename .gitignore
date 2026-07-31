@@ -28,3 +28,8 @@ gitignore
 Thumbs.db
 
 /backups
+
+DESIGN.md
+FEATURES.md
+PRD.md
+TECH_STACK.md
