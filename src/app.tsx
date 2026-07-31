@@ -41,7 +41,7 @@ export default function App() {
           <Title>BackupDB — MySQL Backup Automation</Title>
           <Show when={!loading()} fallback={
             <div class="min-h-screen flex items-center justify-center">
-              <div class="animate-pulse text-gray-400 text-lg">Loading...</div>
+              <div class="animate-pulse text-gray-400 text-lg font-poppins">Loading BackupDB...</div>
             </div>
           }>
             <Show
@@ -50,22 +50,14 @@ export default function App() {
             >
               {/* Default Password Warning Banner — FEATURES.md §2 */}
               <Show when={defaultPassword()}>
-                <div class="bg-amber-50 border-b border-amber-200 px-4 py-2.5 text-center text-sm text-amber-700">
+                <div class="bg-amber-50 border-b border-amber-200 px-4 py-2.5 text-center text-sm text-amber-700 font-medium">
                   ⚠️ You are using the default password. Please change it in{" "}
-                  <a href="/settings" class="font-medium underline hover:text-amber-900">Settings</a>
+                  <a href="/settings" class="font-bold underline hover:text-amber-900">Settings</a>
                   {" "}for security.
                 </div>
               </Show>
 
-              <Nav />
-
-              {/* Logout button floating */}
-              <button
-                onClick={handleLogout}
-                class="fixed bottom-6 right-6 z-40 px-4 py-2.5 rounded-xl bg-gray-900 text-white text-sm hover:bg-gray-800 shadow-lg transition-all duration-150 cursor-pointer"
-              >
-                Logout
-              </button>
+              <Nav onLogout={handleLogout} />
 
               <main class="px-4 sm:px-6 lg:px-8 py-8">
                 <Suspense>{props.children}</Suspense>
