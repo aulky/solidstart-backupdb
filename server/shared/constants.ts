@@ -1,9 +1,17 @@
 /**
- * Validasi nama database/tabel agar hanya mengandung karakter aman.
- * Mencegah SQL injection via template literal backtick quoting.
+ * Validasi nama database/tabel agar aman digunakan dalam query MySQL.
+ * Mengizinkan huruf, angka, spasi, underscore, strip, dan titik (1-128 karakter).
+ * Melarang backtick, null byte, dan karakter berbahaya untuk mencegah SQL injection.
  */
 export function isValidIdentifier(name: string): boolean {
-  return /^[a-zA-Z0-9_\-]+$/.test(name) && name.length > 0 && name.length <= 128;
+  return (
+    typeof name === "string" &&
+    name.trim().length > 0 &&
+    name.length <= 128 &&
+    /^[a-zA-Z0-9_\-\s\.]+$/.test(name) &&
+    !name.includes("`") &&
+    !name.includes("\0")
+  );
 }
 
 /**
@@ -12,7 +20,7 @@ export function isValidIdentifier(name: string): boolean {
  */
 export function sanitizeIdentifier(name: string | undefined): string | null {
   if (!name) return null;
-  const clean = name.replace(/`/g, "");
+  const clean = name.replace(/`/g, "").trim();
   return isValidIdentifier(clean) ? clean : null;
 }
 

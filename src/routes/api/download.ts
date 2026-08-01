@@ -28,8 +28,8 @@ export async function GET(event: APIEvent): Promise<Response> {
       );
     }
 
-    // Sanitize filename to prevent header injection — Audit #4
-    const file = path.basename(rawFile).replace(/[^a-zA-Z0-9_\-\.]/g, "");
+    // Sanitize filename — izinkan spasi, huruf, angka, _, -, .
+    const file = path.basename(rawFile).replace(/[^a-zA-Z0-9_\-\s\.]/g, "").trim();
     if (!file || !file.endsWith(".sql")) {
       return new Response(
         JSON.stringify({ error: "Bad Request", message: "Invalid file name" }),
@@ -72,7 +72,7 @@ export async function GET(event: APIEvent): Promise<Response> {
       );
     }
 
-    // Convert Node ReadStream to Web ReadableStream properly — Audit #5
+    // Convert Node ReadStream to Web ReadableStream properly
     const nodeStream = createReadStream(targetPath);
     const webStream = Readable.toWeb(nodeStream) as unknown as ReadableStream;
 

@@ -1,5 +1,6 @@
-import { mkdir, writeFile, readdir, rm, stat } from "node:fs/promises";
+import { mkdir, readdir, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
+import mysql from "mysql2/promise";
 import { pool, rootPool } from "../db/connection.js";
 import { getDiskSpace } from "./disk.js";
 import { getEnv } from "../env.js";
@@ -8,9 +9,6 @@ import type { RowDataPacket } from "mysql2/promise";
 
 // --- Constants ---
 const MIN_FREE_SPACE = 100 * 1024 * 1024; // 100 MB
-const BATCH_SIZE = 1000;
-const FLUSH_ROW_COUNT = 100;
-const FLUSH_BYTE_LIMIT = 45000;
 
 // --- Concurrency Flag ---
 let backupRunning = false;
@@ -28,132 +26,132 @@ export function formatTimestamp(date: Date = new Date()): string {
   );
 }
 
-// --- Escape SQL value ---
-function escapeValue(val: unknown): string {
-  if (val === null || val === undefined) return "NULL";
-  if (typeof val === "number") return isNaN(val) ? "NULL" : String(val);
-  if (typeof val === "bigint") return String(val);
-  if (typeof val === "boolean") return val ? "1" : "0";
-  if (Buffer.isBuffer(val)) {
-    return `X'${val.toString("hex")}'`;
-  }
-  if (val instanceof Date) {
-    if (isNaN(val.getTime())) return "NULL";
-    return `'${val.toISOString().slice(0, 19).replace("T", " ")}'`;
-  }
-  if (typeof val === "object") {
-    try {
-      const jsonStr = JSON.stringify(val);
-      return `'${jsonStr.replace(/\\/g, "\\\\").replace(/'/g, "\\'").replace(/\n/g, "\\n").replace(/\r/g, "\\r")}'`;
-    } catch {
-      return "NULL";
-    }
-  }
-  const str = String(val);
-  return `'${str.replace(/\\/g, "\\\\").replace(/'/g, "\\'").replace(/\n/g, "\\n").replace(/\r/g, "\\r").replace(/\x00/g, "\\0").replace(/\x1a/g, "\\Z")}'`;
-}
+/**
+ * Pure JS mirror of mysqldump using mysql2 connection queries & conn.escape().
+ * Adopted directly from solid-automation-backupdb reference project for 100% precision.
+ */
+async function dumpDatabaseJS(dbName: string, outFilePath: string): Promise<number> {
+  const env = getEnv();
 
-// --- Core Dump ---
-interface TableRow extends RowDataPacket {
-  [key: string]: unknown;
-}
+  const conn = await mysql.createConnection({
+    host: env.DB_HOST,
+    port: env.DB_PORT,
+    user: env.DB_USER,
+    password: env.DB_PASSWORD,
+    database: dbName,
+    dateStrings: true,
+  });
 
-async function dumpDatabaseJS(
-  dbName: string,
-  outputPath: string
-): Promise<number> {
-  const conn = await rootPool.getConnection();
   try {
-    const safeDb = dbName.replace(/`/g, "");
-    await conn.query(`USE \`${safeDb}\``);
+    let sqlContent = "";
 
-    // Enumerate base tables only (skip views) — FEATURES.md §3
-    const [tables] = await conn.query<RowDataPacket[]>(
-      "SHOW FULL TABLES WHERE Table_type = 'BASE TABLE'"
-    );
+    // SQL Header
+    sqlContent += `-- JS MySQL Dump Mirror\n`;
+    sqlContent += `-- Host: ${env.DB_HOST}    Database: ${dbName}\n`;
+    sqlContent += `-- ------------------------------------------------------\n\n`;
+    sqlContent += `/*!40101 SET @OLD_CHARACTER_SET_CLIENT=@@CHARACTER_SET_CLIENT */;\n`;
+    sqlContent += `/*!40101 SET @OLD_CHARACTER_SET_RESULTS=@@CHARACTER_SET_RESULTS */;\n`;
+    sqlContent += `/*!40101 SET @OLD_COLLATION_CONNECTION=@@COLLATION_CONNECTION */;\n`;
+    sqlContent += `/*!40101 SET NAMES utf8mb4 */;\n`;
+    sqlContent += `/*!40014 SET @OLD_UNIQUE_CHECKS=@@UNIQUE_CHECKS, UNIQUE_CHECKS=0 */;\n`;
+    sqlContent += `/*!40014 SET @OLD_FOREIGN_KEY_CHECKS=@@FOREIGN_KEY_CHECKS, FOREIGN_KEY_CHECKS=0 */;\n`;
+    sqlContent += `/*!40101 SET @OLD_SQL_MODE=@@SQL_MODE, SQL_MODE='NO_AUTO_VALUE_ON_ZERO' */;\n`;
+    sqlContent += `/*!40111 SET @OLD_SQL_NOTES=@@SQL_NOTES, SQL_NOTES=0 */;\n`;
+    sqlContent += `SET AUTOCOMMIT = 0;\n`;
+    sqlContent += `START TRANSACTION;\n\n`;
 
-    let sql = `-- BackupDB dump of \`${safeDb}\`\n`;
-    sql += `-- Generated at ${new Date().toISOString()}\n`;
-    sql += `SET NAMES utf8mb4;\nSET FOREIGN_KEY_CHECKS = 0;\n\n`;
+    // Fetch all BASE TABLES in database
+    const [tablesRows] = await conn.query<RowDataPacket[]>("SHOW FULL TABLES WHERE Table_type = 'BASE TABLE'");
+    const tables = tablesRows.map((row) => String(Object.values(row)[0]));
 
-    for (const tableRow of tables) {
-      // Ambil nama tabel dengan aman (kolom pertama selalu nama tabel pada SHOW FULL TABLES)
-      const keys = Object.keys(tableRow);
-      const tableNameKey = keys.find((k) => k.toLowerCase().startsWith("tables_in_")) || keys[0];
-      const tableName = String(tableRow[tableNameKey]);
+    for (const table of tables) {
+      if (!table || table === "BASE TABLE") continue;
 
-      if (!tableName || tableName === "BASE TABLE") continue;
-      const safeTable = tableName.replace(/`/g, "");
+      sqlContent += `--\n`;
+      sqlContent += `-- Table structure for table \`${table}\`\n`;
+      sqlContent += `--\n\n`;
+      sqlContent += `DROP TABLE IF EXISTS \`${table}\`;\n`;
 
-      try {
-        // DROP + CREATE
-        sql += `DROP TABLE IF EXISTS \`${safeTable}\`;\n`;
-        const [createResult] = await conn.query<RowDataPacket[]>(
-          `SHOW CREATE TABLE \`${safeTable}\``
+      // Get Table DDL Structure
+      const [createRows] = await conn.query<RowDataPacket[]>(`SHOW CREATE TABLE \`${table}\``);
+      if (createRows && createRows[0]) {
+        const createTableSql = (createRows[0]["Create Table"] || Object.values(createRows[0])[1]) as string;
+        sqlContent += `${createTableSql};\n\n`;
+      }
+
+      // Get Table Data Dumps
+      sqlContent += `--\n`;
+      sqlContent += `-- Dumping data for table \`${table}\`\n`;
+      sqlContent += `--\n\n`;
+      sqlContent += `LOCK TABLES \`${table}\` WRITE;\n`;
+      sqlContent += `/*!40000 ALTER TABLE \`${table}\` DISABLE KEYS */;\n`;
+
+      // Stream rows in batches to handle large tables without hanging memory
+      const batchSize = 1000;
+      let offset = 0;
+      let hasMore = true;
+
+      while (hasMore) {
+        const [dataRows] = await conn.query<RowDataPacket[]>(
+          `SELECT * FROM \`${table}\` LIMIT ? OFFSET ?`,
+          [batchSize, offset]
         );
-
-        if (createResult && createResult[0]) {
-          const createStmt =
-            createResult[0]["Create Table"] || Object.values(createResult[0])[1];
-          sql += `${createStmt};\n\n`;
-        }
-
-        // INSERT batching
-        const [rows] = await conn.query<TableRow[]>(
-          `SELECT * FROM \`${safeTable}\``
-        );
+        const rows = dataRows as Array<Record<string, unknown>>;
 
         if (rows.length === 0) {
-          sql += `-- Table \`${safeTable}\` is empty\n\n`;
-          continue;
+          hasMore = false;
+          break;
         }
 
-        const columns = Object.keys(rows[0]).filter((k) => k !== "constructor");
-        let buffer = "";
-        let rowCount = 0;
+        const insertPrefix = `INSERT INTO \`${table}\` VALUES `;
+        let chunk: string[] = [];
+        let chunkBytes = 0;
 
-        for (let i = 0; i < rows.length; i++) {
-          if (i % BATCH_SIZE === 0) {
-            if (i > 0) {
-              buffer += ";\n";
-            }
-            buffer += `INSERT INTO \`${safeTable}\` (\`${columns.join("`, `")}\`) VALUES\n`;
-          } else {
-            buffer += ",\n";
+        for (const row of rows) {
+          const values = Object.values(row)
+            .map((val) => conn.escape(val))
+            .join(",");
+          const rowStr = `(${values})`;
+
+          // Standard chunk limits (100 rows or 45KB per statement)
+          if (chunk.length > 0 && (chunk.length >= 100 || chunkBytes + rowStr.length >= 45000)) {
+            sqlContent += `${insertPrefix}${chunk.join(",\n")};\n`;
+            chunk = [];
+            chunkBytes = 0;
           }
-
-          const values = columns.map((col) => escapeValue(rows[i][col]));
-          buffer += `(${values.join(", ")})`;
-          rowCount++;
-
-          // Flush per FLUSH_ROW_COUNT rows or FLUSH_BYTE_LIMIT bytes
-          if (
-            rowCount >= FLUSH_ROW_COUNT ||
-            buffer.length >= FLUSH_BYTE_LIMIT
-          ) {
-            sql += buffer;
-            buffer = "";
-            rowCount = 0;
-          }
+          chunk.push(rowStr);
+          chunkBytes += rowStr.length;
         }
 
-        if (buffer.length > 0) {
-          sql += buffer;
+        if (chunk.length > 0) {
+          sqlContent += `${insertPrefix}${chunk.join(",\n")};\n`;
         }
-        sql += ";\n\n";
-      } catch (tableErr) {
-        const errDetail = tableErr instanceof Error ? tableErr.message : String(tableErr);
-        throw new Error(`Failed dumping table "${safeTable}" in database "${safeDb}": ${errDetail}`);
+
+        offset += rows.length;
+        if (rows.length < batchSize) {
+          hasMore = false;
+        }
       }
+
+      sqlContent += `/*!40000 ALTER TABLE \`${table}\` ENABLE KEYS */;\n`;
+      sqlContent += `UNLOCK TABLES;\n\n`;
     }
 
-    sql += "SET FOREIGN_KEY_CHECKS = 1;\n";
+    // SQL Footer
+    sqlContent += `COMMIT;\n`;
+    sqlContent += `/*!40101 SET SQL_MODE=@OLD_SQL_MODE */;\n`;
+    sqlContent += `/*!40014 SET FOREIGN_KEY_CHECKS=@OLD_FOREIGN_KEY_CHECKS */;\n`;
+    sqlContent += `/*!40014 SET UNIQUE_CHECKS=@OLD_UNIQUE_CHECKS */;\n`;
+    sqlContent += `/*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;\n`;
+    sqlContent += `/*!40101 SET CHARACTER_SET_RESULTS=@OLD_CHARACTER_SET_RESULTS */;\n`;
+    sqlContent += `/*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;\n`;
+    sqlContent += `/*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;\n`;
 
-    await writeFile(outputPath, sql, "utf-8");
-    const fileStat = await stat(outputPath);
+    await writeFile(outFilePath, sqlContent, "utf8");
+    const fileStat = await stat(outFilePath);
     return Number(fileStat.size);
   } finally {
-    conn.release();
+    await conn.end();
   }
 }
 
