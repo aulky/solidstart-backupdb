@@ -38,7 +38,7 @@ export default function App() {
     <Router
       root={(props) => (
         <MetaProvider>
-          <Title>BackupDB — MySQL Backup Automation</Title>
+          <Title>BackupDB | MySQL Backup Automation</Title>
           <Show when={!loading()} fallback={
             <div class="min-h-screen flex items-center justify-center">
               <div class="animate-pulse text-gray-400 text-lg font-poppins">Loading BackupDB...</div>

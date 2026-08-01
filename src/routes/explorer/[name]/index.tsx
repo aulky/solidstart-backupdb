@@ -16,7 +16,7 @@ export default function TablesPage() {
 
   return (
     <main>
-      <Title>{params.name} — Tables — BackupDB</Title>
+      <Title>{params.name} — Tables | BackupDB</Title>
 
       <div class="max-w-7xl mx-auto space-y-6">
         {/* Breadcrumb */}

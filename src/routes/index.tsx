@@ -48,7 +48,7 @@ export default function Dashboard() {
 
   return (
     <main>
-      <Title>Dashboard — BackupDB</Title>
+      <Title>Dashboard | BackupDB</Title>
 
       <div class="max-w-7xl mx-auto space-y-8">
         {/* Header */}

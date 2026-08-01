@@ -10,7 +10,7 @@ export default function ExplorerIndex() {
 
   return (
     <main>
-      <Title>Database Explorer — BackupDB</Title>
+      <Title>Database Explorer | BackupDB</Title>
 
       <div class="max-w-7xl mx-auto space-y-6">
         <div>

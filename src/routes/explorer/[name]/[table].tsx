@@ -25,7 +25,7 @@ export default function TableDetailPage() {
 
   return (
     <main>
-      <Title>{params.table} — {params.name} — BackupDB</Title>
+      <Title>{params.table} — {params.name} | BackupDB</Title>
 
       <div class="max-w-7xl mx-auto space-y-6">
         {/* Breadcrumb */}

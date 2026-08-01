@@ -6,7 +6,7 @@ import { Database, Home } from "lucide-solid";
 export default function NotFound() {
   return (
     <main class="min-h-[70vh] flex items-center justify-center p-4">
-      <Title>Page Not Found — BackupDB</Title>
+      <Title>Page Not Found | BackupDB</Title>
       <HttpStatusCode code={404} />
 
       <div class="text-center space-y-5 animate-fade-in-up max-w-md">

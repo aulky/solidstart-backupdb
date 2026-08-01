@@ -120,7 +120,7 @@ export default function BackupsPage() {
 
   return (
     <main>
-      <Title>Backups — BackupDB</Title>
+      <Title>Backups | BackupDB</Title>
 
       <div class="max-w-7xl mx-auto space-y-6">
         {/* Header */}

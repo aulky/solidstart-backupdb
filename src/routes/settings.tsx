@@ -107,7 +107,7 @@ export default function SettingsPage() {
 
   return (
     <main>
-      <Title>Settings — BackupDB</Title>
+      <Title>Settings | BackupDB</Title>
 
       <div class="max-w-4xl mx-auto space-y-6">
         <div>
