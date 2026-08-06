@@ -9,16 +9,17 @@
   body {
     background-color: rgb(var(--background-rgb));
     color: rgb(var(--foreground-rgb));
-    font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+    /* Offline font stack — DM Sans / Inter / System Fallback tanpa butuh internet */
+    font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
     min-height: 100vh;
   }
 
   h1, h2, h3, .font-poppins {
-    font-family: 'Poppins', sans-serif;
+    font-family: 'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   }
 
   code, pre, .font-mono {
-    font-family: 'Fira Code', monospace;
+    font-family: 'Fira Code', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   }
 }
 
