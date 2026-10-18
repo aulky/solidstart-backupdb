@@ -16,7 +16,7 @@
     "chart.js": "^4.5.1",
     "jose": "^6.2.5",
     "lucide-solid": "^1.28.0",
-    "mysql2": "^3.23.2",
+    "mysql2": "^3.23.3",
     "mysqldump": "^3.2.0",
     "nitro": "^3.0.260610-beta",
     "node-cron": "^4.6.0",
